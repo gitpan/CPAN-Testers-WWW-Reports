@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use vars qw($VERSION);
-$VERSION = '3.41';
+$VERSION = '3.42';
 
 =head1 NAME
 
@@ -109,7 +109,10 @@ sub BasePages {
 }
 
 sub Process {
-    my ($self,$progress) = @_;
+    my ($self,$progress,$type) = @_;
+
+    # check whether we are running split or combined queries
+    my $types = $type ? "'$type'" : "'author','distro'";
 
     my $cpan = Labyrinth::Plugin::CPAN->new();
     $cpan->Configure();
@@ -117,7 +120,7 @@ sub Process {
     my $olderhit = 0;
     my $quickhit = 1;
     while(1) {
-        my $cnt = IndexPages($cpan,$dbi,$progress);
+        my $cnt = IndexPages($cpan,$dbi,$progress,$type);
         
         # shouldn't really hard code these :)
         my ($query,$loop,$limit) = ('GetRequests',10,10);
@@ -127,7 +130,7 @@ sub Process {
 
         my %names;
         for(1..$loop) {
-            my @rows = $dbi->GetQuery('hash',$query,{limit=>$limit});
+            my @rows = $dbi->GetQuery('hash',$query,{types => $types, limit => $limit});
             last    unless(@rows);
 
             for my $row (@rows) {
@@ -150,26 +153,38 @@ sub Process {
         last         if($cnt == 0 || $req == 0);
 
         my $age = _request_oldest($dbi);
+        my @row = $dbi->GetQuery('hash','GetLargeRequests',{types => $types, limit => 1});
+        my $sum = $row[0]->{total};
+        my $num = $row[0]->{count};
 
-        $quickhit = 
-            $age > $settings{agelimit1}                     # requests older than x days take priority
-                ? 1    
-                : $req < $settings{buildlevel1}             # low amount of requests 
-                    ? 1 
-                    : $req < $settings{buildlevel2}         # medium level of requests
-                        ? ++$quickhit % 2
-                        : $req < $settings{buildlevel3}     # high level of requests
-                            ? ++$quickhit % 4
-                            : $age > $settings{agelimit2}   # older than x days
-                                ? 1
-                                : ++$quickhit % 6;          # very high level of requests
+        $quickhit =
+            $sum > $settings{buildlevel4}                           # very high sum of requests for one request type
+                ? 5
+                : $num > $settings{buildlevel5}                     # very high num of requests for one request type
+                    ? 5
+                    : $age > $settings{agelimit1}                   # requests older than x days take priority
+                        ? 1
+                        : $req < $settings{buildlevel1}             # low amount of requests
+                            ? 1
+                            : $req < $settings{buildlevel2}         # medium level of requests
+                                ? ++$quickhit % 2
+                                : $req < $settings{buildlevel3}     # high level of requests
+                                    ? ++$quickhit % 4
+                                    : $age > $settings{agelimit2}   # older than x days
+                                        ? 1
+                                        : ++$quickhit % 6;          # very high level of requests
     }
 }
 
 sub IndexPages {
-    my ($cpan,$dbi,$progress) = @_;
+    my ($cpan,$dbi,$progress,$type) = @_;
 
-    my @index = $dbi->GetQuery('hash','GetIndexRequests');
+    # check whether we are running split or combined queries
+    my $types = "'ixauth','ixdist'";
+    $types = "'ixauth'" if($type && $type eq 'author');
+    $types = "'ixdist'" if($type && $type eq 'distro');
+
+    my @index = $dbi->GetQuery('hash','GetIndexRequests',{types => $types});
     for my $index (@index) {
         my ($type,@list);
 
@@ -221,6 +236,8 @@ sub IndexPages {
 sub AuthorPages {
     my ($cpan,$dbi,$name,$progress) = @_;
     return  unless(defined $name);
+
+    $name = uc $name;
 
     my @ids = (0);
     my %vars = %{ clone (\%tvars) };
@@ -287,6 +304,7 @@ sub AuthorPages {
             }
 
             while(my $row = $next->()) {
+                next    unless($dists{$row->{dist}} && $row->{version});
                 next    if($dists{$row->{dist}} ne $row->{version});    # ensure this is the latest dist version
 
                 $row->{perl} ||= '';
@@ -621,7 +639,7 @@ sub StatsPages {
     while ( my $row = $next->() ) {
         #next if not $row->{perl};
         #next if $row->{perl} =~ / /;
-        #next if $row->{perl} =~ /^5\.(7|9|11)/; # ignore dev versions
+        #next if $row->{perl} =~ /^5\.(7|9|[1-9][13579])\b/; # ignore dev versions
         #next if $row->{version} =~ /[^\d.]/;
 
         $row->{perl} = "5.004_05" if $row->{perl} eq "5.4.4"; # RT 15162
