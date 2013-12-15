@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use vars qw($VERSION);
-$VERSION = '3.43';
+$VERSION = '3.44';
 
 =head1 NAME
 
@@ -47,6 +47,10 @@ Creates a database connection to the cpanstats database.
 =item Configure
 
 Reads the CPAN configuration file and stores settings.
+
+=item GetTesterProfile
+
+Given the profile id of a tester, returns their credentials, if known.
 
 =item FindTester
 
@@ -126,6 +130,18 @@ sub Configure {
 
 #----------------------------------------------------------------------------
 # Private Interface Functions
+
+sub GetTesterProfile {
+    my ($self,$id) = @_;
+
+    return $TESTERS{$id}    if($TESTERS{$id});
+    
+    my @rows = $dbi->GetQuery('hash','GetTesterProfile',$id);
+    return unless(@rows);
+    
+    $TESTERS{$id} = $rows[0];
+    return $TESTERS{$id};
+}
 
 sub FindTester {
     my $str = shift;

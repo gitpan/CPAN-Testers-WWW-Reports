@@ -8,11 +8,11 @@ $VERSION = '3.44';
 
 =head1 NAME
 
-reports-monitor - Monitor the Reports Builder progress
+reports-builder - Build reports pages
 
 =head1 SYNOPSIS
 
-  perl reports-monitor.pl
+  perl reports-builder.pl
 
 =head1 DESCRIPTION
 
@@ -30,7 +30,7 @@ BEGIN {
 #----------------------------------------------------------
 # Additional Modules
 
-use lib ("$BASE/cgi-bin/lib", "$BASE/cgi-bin/plugins");
+use lib qw|../cgi-bin/lib ../cgi-bin/plugins|;
 
 use Labyrinth::Audit;
 use Labyrinth::DBUtils;
@@ -39,7 +39,7 @@ use Labyrinth::Globals;
 use Labyrinth::Variables;
 
 use Labyrinth::Plugin::Content;
-use Labyrinth::Plugin::CPAN::Monitor;
+use Labyrinth::Plugin::CPAN::Builder;
 
 #----------------------------------------------------------
 # Code
@@ -48,7 +48,7 @@ Labyrinth::Variables::init();   # initial standard variable values
 Labyrinth::Globals::LoadSettings("$BASE/cgi-bin/config/settings.ini");
 Labyrinth::Globals::DBConnect();
 
-    SetLogFile( FILE   => '/var/www/reports/toolkit/logs/monitor-audit.log',
+    SetLogFile( FILE   => '/var/www/reports/toolkit/audit1.log',
                 USER   => 'labyrinth',
                 LEVEL  => 0,
                 CLEAR  => 1,
@@ -59,10 +59,11 @@ $content->GetVersion();
 
 _log("Start");
 
-my $monitor = Labyrinth::Plugin::CPAN::Monitor->new();
-$monitor->Snapshot(\&_log);
-$monitor->Graphs(\&_log);
+my $builder = Labyrinth::Plugin::CPAN::Builder->new();
+$builder->BasePages();
+$builder->Process(\&_log,'author');
 
+_log("Processed 0 pages, 0 requests remaining.");
 _log("Finish");
 
 sub _log {
@@ -70,12 +71,11 @@ sub _log {
     my $date = sprintf "%04d/%02d/%02d %02d:%02d:%02d", $date[5]+1900, $date[4]+1, $date[3], $date[2], $date[1], $date[0];
     print "$date " . join(' ',@_ ). "\n";
 }
-
 __END__
 
 =head1 AUTHOR
 
-  Copyright (c) 2009,2010 Barbie <barbie@cpan.org> Miss Barbell Productions.
+  Copyright (c) 2009 Barbie <barbie@cpan.org> Miss Barbell Productions.
 
 =head1 LICENSE
 
