@@ -2,7 +2,7 @@
 use strict;
 $|++;
 
-my $VERSION = '3.44';
+my $VERSION = '3.53';
 
 #----------------------------------------------------------------------------
 
@@ -19,6 +19,28 @@ reports-metadata.cgi - program to return CPAN Testers report metadata
 Called in a CGI context, returns the current reporting statistics for a CPAN
 distribution, depending upon the parameters provided.
 
+Primary Query String parameters are
+
+=over 4
+
+item * date
+
+Retrieve report data for a specific date. The results of this requests are
+intended to be used to provide a further range request.
+
+item * range
+
+Retrieve reports for a set of id ranges, up to a maximum of 2500 reports. 
+
+Ranges can be open ended, such that "range=-10000" retrieves the first 2500 
+reports and "range=10000-" will retrieve reports from the given id to the 
+latest report respective, or the next 2500 as appropriate. Note that "range=-"
+is valid, but will only retrieve the first 2500 reports.
+
+If range is a single id, only that report id is returned, if found.
+
+=back
+
 =cut
 
 # -------------------------------------
@@ -28,6 +50,7 @@ use CGI;
 use Config::IniFiles;
 use CPAN::Testers::Common::DBUtils;
 use Data::Dumper;
+use Getopt::Long;
 use IO::File;
 use JSON::XS;
 
@@ -59,7 +82,14 @@ writer();
 # Subroutines
 
 sub init_options {
-    $options{config} = $VHOST . 'cgi-bin/config/settings.ini';
+    GetOptions( 
+        \%options,
+        'config=s',
+        'date=s',
+        'range=s'
+    );
+
+    $options{config} ||= $VHOST . 'cgi-bin/config/settings.ini';
 
     error("Must specific the configuration file\n")             unless($options{config});
     error("Configuration file [$options{config}] not found\n")  unless(-f $options{config});
@@ -156,7 +186,7 @@ sub writer {
     #audit("DEBUG: data=" . $data ? 'YES' : 'NO');
     #audit("DEBUG: data=$data");
 
-    print $cgi->header('text/plain') . $data . "\n";
+    print $cgi->header('application/json') . $data . "\n";
 }
 
 sub error {
@@ -210,7 +240,7 @@ F<http://blog.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2012-2013 Barbie <barbie@cpan.org>
+  Copyright (C) 2012-2014 Barbie <barbie@cpan.org>
 
   This module is free software; you can redistribute it and/or
   modify it under the Artistic License 2.0.

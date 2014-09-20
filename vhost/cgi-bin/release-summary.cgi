@@ -2,7 +2,7 @@
 use strict;
 $|++;
 
-my $VERSION = '3.44';
+my $VERSION = '3.53';
 
 #----------------------------------------------------------------------------
 
@@ -19,19 +19,109 @@ release-summary.cgi - program to return statistics of a CPAN distribution
 Called in a CGI context, returns the current reporting statistics for a CPAN
 distribution, depending upon the POST parameters provided.
 
+Primary Query String parameters are
+
+=over 4
+
+item * dist
+
+The distribution to provide a summary for. An error will be returned if no
+distribution name is provided.
+
+=back
+
+At least one of these parameters needs to be supplied, otherwise an error will
+be returned.
+
+Secondary optional Query String parameters available are
+
+item * version
+
+Filter based on a specific distribution version. Defaults to the latest 
+version.
+
+item * oncpan
+
+Filter based on whether the distribution is available on CPAN or only BACKPAN.
+Values are:
+
+=over 4
+
+=item * 0 = CPAN and BACKPAN
+=item * 1 = CPAN only
+=item * 2 = BACKPAN only
+
+=back
+
+item * distmat
+
+Filter based on whether the distribution is a developer release or a 
+stable release.
+
+=over 4
+
+=item * 0 = all releases
+=item * 1 = stable releases only
+=item * 2 = development releases only
+
+=back
+
+item * perlmat
+
+Filter based on perl maturity, i.e. whether a development version (5.21.3) or
+a stable version (5.20.1). Values are:
+
+=over 4
+
+=item * 0 = all reports
+=item * 1 = stable versions only
+=item * 2 = development versions only
+
+=back
+
+item * patches
+
+Filter based on whether the perl version is a patch. Values are:
+
+=over 4
+
+=item * 0 = all reports
+=item * 1 = patches only
+=item * 2 = exclude patches
+
+=back
+
+Defaults to all reports.
+
+item * perlver
+
+Filter based on Perl version, e.g. 5.20.1. Defaults to all versions.
+
+item * osname (optional)
+
+Filter based on Operating System name, e.g. MSWin32. Defaults to all Operating 
+Systems.
+
+item * format
+
+Available formats are: 'csv', 'ajax' and 'json'. Defaults to 'csv'.
+
+=back
+
 =cut
 
 # -------------------------------------
 # Library Modules
 
-use OpenThought();
 use CGI;
 use Config::IniFiles;
 use CPAN::Testers::Common::DBUtils;
-use Template;
-use JSON;
-use IO::File;
 use Data::Dumper;
+use Getopt::Long;
+use IO::File;
+use JSON;
+use OpenThought();
+use Template;
 
 # -------------------------------------
 # Variables
@@ -50,7 +140,7 @@ my %rules = (
     patches => qr/^([0-2])$/i,
     perlver => qr/^([\w.]+)$/i,
     osname  => qr/^([\w.]+)$/i,
-    format  => qr/^(text|ajax|json)$/i
+    format  => qr/^(ajax|csv|json)$/i
 );
 
 my $EXCEPTIONS;
@@ -68,7 +158,21 @@ process_response();
 # Subroutines
 
 sub init_options {
-    $options{config} = $VHOST . 'cgi-bin/config/settings.ini';
+    GetOptions( 
+        \%options,
+        'config=s',
+        'dist=s',
+        'version=s',
+        'oncpan=s',
+        'distmat=s',
+        'perlmat=s',
+        'patches=s',
+        'perlver=s',
+        'osname=s',
+        'format=s'
+    );
+
+    $options{config} ||= $VHOST . 'cgi-bin/config/settings.ini';
 
     error("Must specific the configuration file\n")             unless($options{config});
     error("Configuration file [$options{config}] not found\n")  unless(-f $options{config});
@@ -188,8 +292,6 @@ sub process_dist_long {
     push @where, "(perl LIKE '%patch%' OR perl LIKE '%RC%')"            if($cgiparams{patches} && $cgiparams{patches} == 2);
     push @where, "version NOT LIKE '%\\_%'"     if($cgiparams{distmat} && $cgiparams{distmat} == 1);
     push @where, "version LIKE '%\\_%'"         if($cgiparams{distmat} && $cgiparams{distmat} == 2);
-    #push @where, "perl NOT REGEX '^5.(7|9|11)'" if($cgiparams{perlmat} && $cgiparams{perlmat} == 1);
-    #push @where, "perl REGEX '^5.(7|9|11)'"     if($cgiparams{perlmat} && $cgiparams{perlmat} == 2);
     my $where = @where ? ' AND ' . join(' AND ',@where) : '';
 
     my $dist = "'$cgiparams{dist}'";
@@ -208,8 +310,8 @@ sub process_dist_long {
         #next    if($cgiparams{patches} && $cgiparams{patches} == 2     && $row->{perl}     !~ /(patch|RC)/i);
         #next    if($cgiparams{distmat} && $cgiparams{distmat} == 1     && $row->{version}  =~ /_/i);
         #next    if($cgiparams{distmat} && $cgiparams{distmat} == 2     && $row->{version}  !~ /_/i);
-        next    if($cgiparams{perlmat} && $cgiparams{perlmat} == 1     && $row->{perl}     =~ /^5.(7|9|11)/);
-        next    if($cgiparams{perlmat} && $cgiparams{perlmat} == 2     && $row->{perl}     !~ /^5.(7|9|11)/);
+        next    if($cgiparams{perlmat} && $cgiparams{perlmat} == 1     && $row->{perl}     =~ /^5.(7|9|[1-9][13579])/);
+        next    if($cgiparams{perlmat} && $cgiparams{perlmat} == 2     && $row->{perl}     !~ /^5.(7|9|[1-9][13579])/);
         next    if($cgiparams{perlver} && $cgiparams{perlver} ne 'ALL' && $row->{perl}     !~ /$cgiparams{perlver}/i);
         next    if($cgiparams{osname}  && $cgiparams{osname}  ne 'ALL' && $row->{osname}   !~ /$cgiparams{osname}/i);
 
@@ -242,7 +344,7 @@ sub process_dist_long {
 
 sub process_response {
 
-    audit("DEBUG: results=".Dumper(\%results));
+    #audit("DEBUG: results=".Dumper(\%results));
 
     if($cgiparams{format} eq 'ajax') {
         my $ot = OpenThought->new();
@@ -273,7 +375,7 @@ sub process_response {
         print $ot->response();
         print "\n";
     } elsif($cgiparams{format} eq 'json') {
-        print "Content-Type: text/xml; charset=ISO-8859-1\n";
+        print "Content-Type: application/json; charset=ISO-8859-1\n";
         print "Cache-Control: no-cache\n\n";
         if(%results) {
             my @json;
@@ -285,8 +387,9 @@ sub process_response {
         }
 
     } elsif(%results) {
-        print( "Content-Type: text/text; charset=ISO-8859-1\n" );
-        print( "Cache-Control: no-cache\n\n" );
+        print( qq{Content-Type: text/csv; charset=ISO-8859-1\n} );
+        print( qq{Content-Disposition: attachment; filename="release-summary.csv"\n} );
+        print( qq{Cache-Control: no-cache\n\n} );
         if(%results) {
             for my $vers (@{$results{versions}}) {
                 printf "%s,%d,%d,%d,%d,%d\n", $vers, map {$results{summary}{$vers}{uc $_}} qw(pass fail na unknown all);
@@ -349,7 +452,7 @@ F<http://blog.cpantesters.org/>
 
 =head1 COPYRIGHT AND LICENSE
 
-  Copyright (C) 2010-2013 Barbie <barbie@cpan.org>
+  Copyright (C) 2010-2014 Barbie <barbie@cpan.org>
 
   This module is free software; you can redistribute it and/or
   modify it under the Artistic License 2.0.
